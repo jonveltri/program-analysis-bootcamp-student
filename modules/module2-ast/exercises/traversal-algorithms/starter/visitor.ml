@@ -1,40 +1,72 @@
-(* visitor.ml - AST visitor pattern exercises.
-   Implement two common visitor-style operations that walk the AST
-   and accumulate information. *)
+(* visitor.ml - AST visitor pattern exercises. *)
 
 open Shared_ast.Ast_types
 
-(** Count the number of each node type in a statement list.
-    Returns an association list like:
-      [("Assign", 3); ("IntLit", 5); ("BinOp", 2); ...]
-    The keys are constructor names WITHOUT parameters (e.g., "IntLit"
-    not "IntLit(3)"). Order does not matter.
+let inc (key : string) (counts : (string * int) list) : (string * int) list =
+  if List.mem_assoc key counts then
+    List.map (fun (k, n) -> if k = key then (k, n + 1) else (k, n)) counts
+  else
+    counts @ [(key, 1)]
 
-    Hint:
-      - Write recursive helpers for expr and stmt.
-      - Use a mutable Hashtbl or a ref to a Map to accumulate counts,
-        or thread an accumulator through the recursion.
-      - Don't forget to count the node itself AND recurse into its
-        children. *)
-let count_nodes (_stmts : stmt list) : (string * int) list =
-  (* TODO: walk the AST and count occurrences of each constructor *)
-  failwith "TODO"
+let rec count_expr (acc : (string * int) list) (e : expr) : (string * int) list =
+  match e with
+  | IntLit _ -> inc "IntLit" acc
+  | BoolLit _ -> inc "BoolLit" acc
+  | Var _ -> inc "Var" acc
+  | BinOp (_, e1, e2) ->
+    let acc = inc "BinOp" acc in
+    let acc = count_expr acc e1 in
+    count_expr acc e2
+  | UnaryOp (_, e1) ->
+    let acc = inc "UnaryOp" acc in
+    count_expr acc e1
+  | Call (_, args) ->
+    let acc = inc "Call" acc in
+    List.fold_left count_expr acc args
 
-(** Evaluate a constant expression, returning Some int if the
-    expression contains only integer literals and arithmetic operators,
-    or None if it contains variables, booleans, calls, or comparison
-    operators.
+and count_stmt (acc : (string * int) list) (s : stmt) : (string * int) list =
+  match s with
+  | Assign (_, e) ->
+    let acc = inc "Assign" acc in
+    count_expr acc e
+  | If (cond, then_b, else_b) ->
+    let acc = inc "If" acc in
+    let acc = count_expr acc cond in
+    let acc = List.fold_left count_stmt acc then_b in
+    List.fold_left count_stmt acc else_b
+  | While (cond, body) ->
+    let acc = inc "While" acc in
+    let acc = count_expr acc cond in
+    List.fold_left count_stmt acc body
+  | Return None -> inc "Return" acc
+  | Return (Some e) ->
+    let acc = inc "Return" acc in
+    count_expr acc e
+  | Print exprs ->
+    let acc = inc "Print" acc in
+    List.fold_left count_expr acc exprs
+  | Block stmts ->
+    let acc = inc "Block" acc in
+    List.fold_left count_stmt acc stmts
 
-    Supported operators: Add, Sub, Mul, Div (integer division).
-    Division by zero should return None.
+let count_nodes (stmts : stmt list) : (string * int) list =
+  List.fold_left count_stmt [] stmts
 
-    Examples:
-      evaluate (IntLit 42)                        => Some 42
-      evaluate (BinOp (Add, IntLit 1, IntLit 2))  => Some 3
-      evaluate (BinOp (Add, IntLit 1, Var "x"))   => None
-      evaluate (BoolLit true)                      => None
-
-    Hint: use Option.bind or match on recursive results. *)
-let evaluate (_e : expr) : int option =
-  (* TODO: evaluate constant integer expressions *)
-  failwith "TODO"
+let rec evaluate (e : expr) : int option =
+  match e with
+  | IntLit n -> Some n
+  | UnaryOp (Neg, e1) ->
+    (match evaluate e1 with
+     | Some n -> Some (-n)
+     | None -> None)
+  | BinOp (op, e1, e2) ->
+    (match evaluate e1, evaluate e2 with
+     | Some a, Some b ->
+       (match op with
+        | Add -> Some (a + b)
+        | Sub -> Some (a - b)
+        | Mul -> Some (a * b)
+        | Div -> if b = 0 then None else Some (a / b)
+        | _ -> None)
+     | _ -> None)
+  | _ -> None
